@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D3 Gantt Comparison</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      font-family: "Space Grotesk", sans-serif;
+      transition: background-color 180ms ease;
+    }
+
+    #chart-root {
+      width: 100%;
+    }
+
+    svg {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="chart-root"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <script>
+    const traditionalCycle = [
+      { task: "Design mockup (sample data)", start: 0, duration: 5, category: "design" },
+      { task: "Stakeholder review", start: 5, duration: 1, category: "review" },
+      { task: "Write spec / handoff", start: 6, duration: 3, category: "handoff" },
+      { task: "Engineering builds", start: 9, duration: 10, category: "engineering" },
+      { task: "Real data loaded - problems found", start: 19, duration: 1, category: "problem" },
+      { task: "Redesign", start: 20, duration: 4, category: "rework" },
+      { task: "User testing reveals UX issues", start: 24, duration: 3, category: "review" },
+      { task: "Refine from user feedback", start: 27, duration: 3, category: "rework" },
+      { task: "Engineering rebuilds", start: 30, duration: 6, category: "rework" },
+      { task: "Final validation + release prep", start: 36, duration: 2, category: "review" }
+    ];
+
+    const aiAssistedCycle = [
+      { task: "Connect to API, build prototype", start: 0, duration: 4, category: "design" },
+      { task: "Stakeholder review", start: 4, duration: 1, category: "review" },
+      { task: "Test with real users, iterate + refine", start: 5, duration: 4, category: "review" },
+      { task: "Figma design + dev handoff", start: 9, duration: 1, category: "handoff" },
+      { task: "Engineering builds (the right thing)", start: 10, duration: 6, category: "engineering" },
+      { task: "Final validation + release prep", start: 16, duration: 2, category: "review" }
+    ];
+
+    const themes = {
+      light: {
+        background: "hsl(220, 14%, 95%)",
+        backgroundAlt: "hsl(220, 10%, 91%)",
+        foreground: "hsl(220, 20%, 10%)",
+        foregroundMuted: "hsl(220, 9%, 46%)",
+        accent: "hsl(68, 93%, 50%)",
+        border: "hsl(220, 10%, 84%)",
+        destructive: "hsl(0, 84%, 60%)"
+      },
+      dark: {
+        background: "hsl(222, 47%, 11%)",
+        backgroundAlt: "hsl(217, 33%, 17%)",
+        foreground: "hsl(210, 40%, 96%)",
+        foregroundMuted: "hsl(215, 20%, 55%)",
+        accent: "hsl(70, 86%, 45%)",
+        border: "hsl(217, 20%, 24%)",
+        destructive: "hsl(0, 63%, 31%)"
+      }
+    };
+
+    const barSize = 20;
+    const barGap = 3;
+
+    function panelHeightForData(data) {
+      return data.length * barSize + (data.length - 1) * barGap;
+    }
+
+    const dimensions = {
+      margin: { top: 40, right: 40, bottom: 60, left: 90 },
+      panelGap: 50,
+      titleGap: 18,
+      axisGap: 8
+    };
+    const sharedDomain = [0, 46];
+
+    function cycleTotalDays(data) {
+      return d3.max(data, (d) => d.start + d.duration);
+    }
+
+    function calcSize() {
+      const containerWidth = d3.select("#chart-root").node().getBoundingClientRect().width;
+      const firstPanelHeight = panelHeightForData(traditionalCycle);
+      const secondPanelHeight = panelHeightForData(aiAssistedCycle);
+      const totalHeight = dimensions.margin.top + 32 + firstPanelHeight + dimensions.panelGap + secondPanelHeight + 40 + dimensions.margin.bottom;
+      dimensions.width = Math.max(containerWidth, 600);
+      dimensions.height = totalHeight;
+    }
+
+    const root = d3.select("#chart-root");
+    calcSize();
+    const svg = root
+      .append("svg")
+      .attr("width", dimensions.width)
+      .attr("height", dimensions.height)
+      .attr("aria-label", "Gantt chart comparison between traditional and AI-assisted cycles")
+      .attr("role", "img");
+
+    const backgroundLayer = svg.append("g");
+    const chartLayer = svg.append("g");
+    const annotationLayer = svg.append("g");
+    const controlsLayer = svg.append("g");
+    const tooltipLayer = svg.append("g");
+    const measurementLayer = svg.append("g").attr("opacity", 0).attr("pointer-events", "none");
+
+    const tooltip = tooltipLayer
+      .append("g")
+      .style("display", "none")
+      .style("pointer-events", "none");
+
+    const tooltipBackground = tooltip.append("rect").attr("rx", 8).attr("ry", 8).attr("stroke-width", 1);
+    const tooltipTextTask = tooltip.append("text").style("font-size", "12px").style("font-weight", 700);
+    const tooltipTextDuration = tooltip.append("text").style("font-size", "11px");
+    const tooltipTextRange = tooltip.append("text").style("font-size", "11px");
+
+    const toggle = controlsLayer.append("g").style("cursor", "pointer");
+    const toggleBackground = toggle.append("rect").attr("rx", 8).attr("ry", 8).attr("stroke-width", 1);
+    const toggleText = toggle
+      .append("text")
+      .style("font-size", "11px")
+      .style("font-weight", 700)
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle");
+
+    let activeTheme = "light";
+
+    function categoryColor(theme, category) {
+      if (category === "design") return theme.accent;
+      if (category === "review") return theme.foregroundMuted;
+      if (category === "handoff") return theme.border;
+      if (category === "engineering") return d3.interpolateRgb(theme.foregroundMuted, theme.background)(0.25);
+      if (category === "problem") return theme.foregroundMuted;
+      if (category === "rework") return theme.foregroundMuted;
+      return theme.foregroundMuted;
+    }
+
+    function categoryOpacity(category) {
+      return 0.85;
+    }
+
+    function contrastText(fillColor, theme) {
+      const rgb = d3.color(fillColor);
+      if (!rgb) return theme.foreground;
+      const luminance = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+      return luminance > 0.55 ? "hsl(220, 20%, 10%)" : "hsl(210, 40%, 96%)";
+    }
+
+    function truncateWithEllipsis(label, maxWidthPx) {
+      const probe = measurementLayer
+        .append("text")
+        .style("font-size", "12px")
+        .style("font-weight", 400)
+        .style("font-family", "Space Grotesk, sans-serif")
+        .text(label);
+
+      if (probe.node().getComputedTextLength() <= maxWidthPx) {
+        probe.remove();
+        return label;
+      }
+
+      let trimmed = label;
+      while (trimmed.length > 0) {
+        trimmed = trimmed.slice(0, -1);
+        probe.text(trimmed + "...");
+        if (probe.node().getComputedTextLength() <= maxWidthPx) {
+          probe.remove();
+          return trimmed + "...";
+        }
+      }
+
+      probe.remove();
+      return "...";
+    }
+
+    function setTooltip(taskDatum, event, theme) {
+      const lines = [
+        taskDatum.task,
+        `${taskDatum.duration} day${taskDatum.duration === 1 ? "" : "s"}`,
+        `Day ${taskDatum.start} to Day ${taskDatum.start + taskDatum.duration}`
+      ];
+
+      tooltipTextTask.text(lines[0]).attr("x", 8).attr("y", 18).attr("fill", theme.foreground);
+      tooltipTextDuration.text(lines[1]).attr("x", 8).attr("y", 36).attr("fill", theme.foregroundMuted);
+      tooltipTextRange.text(lines[2]).attr("x", 8).attr("y", 52).attr("fill", theme.foregroundMuted);
+
+      const maxTextWidth = d3.max([
+        tooltipTextTask.node().getComputedTextLength(),
+        tooltipTextDuration.node().getComputedTextLength(),
+        tooltipTextRange.node().getComputedTextLength()
+      ]);
+
+      const tooltipWidth = maxTextWidth + 16;
+      const tooltipHeight = 62;
+      tooltipBackground
+        .attr("width", tooltipWidth)
+        .attr("height", tooltipHeight)
+        .attr("fill", theme.backgroundAlt)
+        .attr("stroke", theme.border);
+
+      const pointer = d3.pointer(event, svg.node());
+      const x = Math.min(pointer[0] + 14, dimensions.width - tooltipWidth - 8);
+      const y = Math.max(8, pointer[1] - tooltipHeight - 10);
+      tooltip.attr("transform", `translate(${x},${y})`);
+    }
+
+    const msPerDay = 180;
+
+    function renderChart({ parent, data, title, panelTop, totalLabel, theme, xScale, animate }) {
+      const ph = panelHeightForData(data);
+      const panelGroup = parent.append("g").attr("transform", `translate(${dimensions.margin.left},${panelTop})`);
+      const chartWidth = dimensions.width - dimensions.margin.left - dimensions.margin.right;
+      const step = barSize + barGap;
+
+      const yScale = d3
+        .scaleBand()
+        .domain(data.map((d) => d.task))
+        .range([0, ph])
+        .paddingInner(barGap / step)
+        .paddingOuter(0);
+
+      const barHeight = barSize;
+      const barOffset = 0;
+
+      parent
+        .append("text")
+        .attr("x", dimensions.margin.left)
+        .attr("y", panelTop - dimensions.titleGap)
+        .attr("fill", theme.foreground)
+        .style("font-size", "16px")
+        .style("font-weight", 700)
+        .style("font-family", "Space Grotesk, sans-serif")
+        .style("opacity", animate ? 0 : 1)
+        .text(title)
+        .transition()
+        .duration(animate ? 300 : 0)
+        .style("opacity", 1);
+
+      const barsGroup = panelGroup.append("g");
+      const labelsGroup = panelGroup.append("g");
+
+      const bars = barsGroup
+        .selectAll("rect")
+        .data(data)
+        .enter()
+        .append("rect")
+        .attr("x", (d) => xScale(d.start))
+        .attr("y", (d) => yScale(d.task) + barOffset)
+        .attr("width", animate ? 0 : (d) => xScale(d.start + d.duration) - xScale(d.start))
+        .attr("height", barHeight)
+        .attr("rx", 0)
+        .attr("ry", 0)
+        .attr("fill", (d) => categoryColor(theme, d.category))
+        .attr("fill-opacity", (d) => categoryOpacity(d.category))
+        .attr("stroke", "none")
+        .on("mouseenter", function (event, d) {
+          d3.select(this).attr("fill-opacity", Math.min(1, categoryOpacity(d.category) + 0.15));
+          tooltip.style("display", null);
+          setTooltip(d, event, theme);
+        })
+        .on("mousemove", function (event, d) {
+          setTooltip(d, event, theme);
+        })
+        .on("mouseleave", function (event, d) {
+          d3.select(this).attr("fill-opacity", categoryOpacity(d.category));
+          tooltip.style("display", "none");
+        });
+
+      if (animate) {
+        bars
+          .transition()
+          .delay((d) => d.start * msPerDay)
+          .duration((d) => d.duration * msPerDay)
+          .ease(d3.easeLinear)
+          .attr("width", (d) => xScale(d.start + d.duration) - xScale(d.start));
+      }
+
+      labelsGroup
+        .selectAll(".duration-label")
+        .data(data)
+        .enter()
+        .append("text")
+        .attr("class", "duration-label")
+        .attr("x", (d) => xScale(d.start) + (xScale(d.start + d.duration) - xScale(d.start)) / 2)
+        .attr("y", (d) => yScale(d.task) + barOffset + barHeight / 2 + 4)
+        .attr("text-anchor", "middle")
+        .attr("fill", theme.foreground)
+        .style("font-size", "11px")
+        .style("font-family", "Space Grotesk, sans-serif")
+        .style("font-weight", 400)
+        .style("opacity", animate ? 0 : 1)
+        .text((d) => `${d.duration}d`)
+        .transition()
+        .delay((d) => animate ? (d.start + d.duration) * msPerDay : 0)
+        .duration(animate ? 200 : 0)
+        .style("opacity", 1);
+
+      labelsGroup
+        .selectAll(".task-label")
+        .data(data)
+        .enter()
+        .append("text")
+        .attr("class", "task-label")
+        .attr("x", (d) => xScale(d.start + d.duration) + 8)
+        .attr("y", (d) => yScale(d.task) + barOffset + barHeight / 2 + 4)
+        .attr("text-anchor", "start")
+        .attr("fill", theme.foreground)
+        .style("font-size", "11px")
+        .style("font-family", "Space Grotesk, sans-serif")
+        .style("font-weight", 400)
+        .style("opacity", animate ? 0 : 1)
+        .text((d) => {
+          const availableWidth = xScale(sharedDomain[1]) - xScale(d.start + d.duration) - 14;
+          return truncateWithEllipsis(d.task, Math.max(availableWidth, 32));
+        })
+        .transition()
+        .delay((d) => animate ? (d.start + d.duration) * msPerDay : 0)
+        .duration(animate ? 200 : 0)
+        .style("opacity", 1);
+
+      const lastEnd = d3.max(data, (d) => d.start + d.duration);
+      panelGroup
+        .append("text")
+        .attr("x", chartWidth)
+        .attr("y", ph + 18)
+        .attr("text-anchor", "end")
+        .attr("fill", theme.foreground)
+        .style("font-size", "14px")
+        .style("font-weight", 700)
+        .style("font-family", "Space Grotesk, sans-serif")
+        .style("opacity", animate ? 0 : 1)
+        .text(totalLabel)
+        .transition()
+        .delay(animate ? lastEnd * msPerDay + 200 : 0)
+        .duration(animate ? 300 : 0)
+        .style("opacity", 1);
+
+      return {
+        panelGroup,
+        yScale,
+        barOffset,
+        barHeight
+      };
+    }
+
+    let isFirstRender = true;
+
+    function render() {
+      calcSize();
+      svg.attr("width", dimensions.width).attr("height", dimensions.height);
+
+      const theme = themes[activeTheme];
+      const chartWidth = dimensions.width - dimensions.margin.left - dimensions.margin.right;
+      const firstPanelHeight = panelHeightForData(traditionalCycle);
+      const secondPanelHeight = panelHeightForData(aiAssistedCycle);
+      const firstPanelTop = dimensions.margin.top + 32;
+      const secondPanelTop = firstPanelTop + firstPanelHeight + dimensions.panelGap;
+      const xScale = d3.scaleLinear().domain(sharedDomain).range([0, chartWidth]);
+      const animate = isFirstRender;
+      isFirstRender = false;
+
+      d3.select("body").style("background-color", theme.background);
+
+      backgroundLayer.selectAll("*").remove();
+      annotationLayer.selectAll("*").remove();
+      chartLayer.selectAll("*").remove();
+      tooltip.style("display", "none");
+
+      backgroundLayer
+        .append("rect")
+        .attr("x", 0)
+        .attr("y", 0)
+        .attr("width", dimensions.width)
+        .attr("height", dimensions.height)
+        .attr("fill", theme.background);
+
+      renderChart({
+        parent: chartLayer,
+        data: traditionalCycle,
+        title: "Traditional Design Cycle",
+        panelTop: firstPanelTop,
+        totalLabel: `Total: ${cycleTotalDays(traditionalCycle)} days`,
+        theme,
+        xScale,
+        animate
+      });
+
+      renderChart({
+        parent: chartLayer,
+        data: aiAssistedCycle,
+        title: "AI-Assisted Prototyping Cycle",
+        panelTop: secondPanelTop,
+        totalLabel: `Total: ${cycleTotalDays(aiAssistedCycle)} days`,
+        theme,
+        xScale,
+        animate
+      });
+
+      const markerX = dimensions.margin.left + xScale(14);
+      const lineTop = firstPanelTop - 40;
+      const lineBottom = secondPanelTop + secondPanelHeight;
+      const markerDelay = animate ? 14 * msPerDay : 0;
+      const lineDuration = animate ? 400 : 0;
+
+      const markerLine = annotationLayer
+        .append("line")
+        .attr("x1", markerX)
+        .attr("x2", markerX)
+        .attr("y2", lineBottom)
+        .attr("stroke", "#000")
+        .attr("stroke-width", 1)
+        .attr("stroke-dasharray", "6,6");
+
+      if (animate) {
+        markerLine
+          .attr("y1", lineBottom)
+          .transition()
+          .delay(markerDelay)
+          .duration(lineDuration)
+          .ease(d3.easeCubicOut)
+          .attr("y1", lineTop);
+      } else {
+        markerLine.attr("y1", lineTop);
+      }
+
+      const markerLabel = annotationLayer
+        .append("text")
+        .attr("x", markerX + 8)
+        .attr("y", firstPanelTop - 28)
+        .attr("fill", theme.foreground)
+        .style("font-size", "12px")
+        .style("font-family", "Space Grotesk, sans-serif")
+        .style("font-weight", 700)
+        .text("AI cycle complete");
+
+      if (animate) {
+        markerLabel
+          .style("opacity", 0)
+          .transition()
+          .delay(markerDelay + lineDuration)
+          .duration(300)
+          .style("opacity", 1);
+      }
+
+      toggle.attr("transform", `translate(${dimensions.width - 170}, 14)`);
+      toggleBackground
+        .attr("width", 150)
+        .attr("height", 28)
+        .attr("fill", theme.backgroundAlt)
+        .attr("stroke", theme.border);
+      toggleText
+        .attr("x", 75)
+        .attr("y", 14)
+        .attr("fill", theme.foreground)
+        .text(activeTheme === "light" ? "Switch to Dark" : "Switch to Light");
+
+      replayBtn.attr("transform", `translate(${dimensions.width - 280}, 14)`);
+      replayBg
+        .attr("width", 100)
+        .attr("height", 28)
+        .attr("fill", theme.backgroundAlt)
+        .attr("stroke", theme.border);
+      replayText
+        .attr("x", 50)
+        .attr("y", 14)
+        .attr("fill", theme.foreground)
+        .text("Replay");
+    }
+
+    toggle.on("click", function () {
+      activeTheme = activeTheme === "light" ? "dark" : "light";
+      render();
+    });
+
+    const replayBtn = controlsLayer.append("g").style("cursor", "pointer");
+    const replayBg = replayBtn.append("rect").attr("rx", 8).attr("ry", 8).attr("stroke-width", 1);
+    const replayText = replayBtn
+      .append("text")
+      .style("font-size", "11px")
+      .style("font-weight", 700)
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle");
+
+    replayBtn.on("click", function () {
+      isFirstRender = true;
+      render();
+    });
+
+    let resizeTimer;
+    d3.select(window).on("resize", function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(render, 80);
+    });
+
+    render();
+  </script>
+</body>
+</html>

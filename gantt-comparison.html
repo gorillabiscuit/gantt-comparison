@@ -307,7 +307,10 @@
         .attr("x", (d) => xScale(d.start) + (xScale(d.start + d.duration) - xScale(d.start)) / 2)
         .attr("y", (d) => yScale(d.task) + barOffset + barHeight / 2 + 4)
         .attr("text-anchor", "middle")
-        .attr("fill", theme.foreground)
+        .attr("fill", (d) => {
+          const dark = ["review", "problem", "rework", "engineering"];
+          return dark.includes(d.category) ? "white" : theme.foreground;
+        })
         .style("font-size", "11px")
         .style("font-family", "Space Grotesk, sans-serif")
         .style("font-weight", 400)
@@ -419,10 +422,32 @@
         animate
       });
 
-      const markerX = dimensions.margin.left + xScale(14);
+      const aiEndDay = cycleTotalDays(aiAssistedCycle);
+      const markerX = dimensions.margin.left + xScale(aiEndDay);
       const lineTop = firstPanelTop - 40;
       const lineBottom = secondPanelTop + secondPanelHeight;
-      const markerDelay = animate ? 14 * msPerDay : 0;
+      const markerDelay = animate ? aiEndDay * msPerDay : 0;
+
+      const redOverlayX = markerX;
+      const redOverlayWidth = dimensions.margin.left + xScale(sharedDomain[1]) - markerX;
+
+      const redOverlay = annotationLayer
+        .append("rect")
+        .attr("x", redOverlayX)
+        .attr("y", firstPanelTop)
+        .attr("width", redOverlayWidth)
+        .attr("height", firstPanelHeight)
+        .attr("fill", theme.destructive)
+        .attr("fill-opacity", animate ? 0 : 0.08)
+        .attr("pointer-events", "none");
+
+      if (animate) {
+        redOverlay
+          .transition()
+          .delay(markerDelay + 400)
+          .duration(300)
+          .attr("fill-opacity", 0.08);
+      }
       const lineDuration = animate ? 400 : 0;
 
       const markerLine = annotationLayer

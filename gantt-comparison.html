@@ -448,6 +448,28 @@
           .duration(300)
           .attr("fill-opacity", 0.08);
       }
+
+      const extraDays = cycleTotalDays(traditionalCycle) - cycleTotalDays(aiAssistedCycle);
+      const extraLabel = annotationLayer
+        .append("text")
+        .attr("x", redOverlayX + redOverlayWidth - 8)
+        .attr("y", firstPanelTop + 14)
+        .attr("text-anchor", "end")
+        .attr("fill", theme.destructive)
+        .style("font-size", "12px")
+        .style("font-family", "Space Grotesk, sans-serif")
+        .style("font-weight", 700)
+        .style("opacity", animate ? 0 : 1)
+        .text(`+${extraDays} days`);
+
+      if (animate) {
+        extraLabel
+          .transition()
+          .delay(markerDelay + 700)
+          .duration(300)
+          .style("opacity", 1);
+      }
+
       const lineDuration = animate ? 400 : 0;
 
       const markerLine = annotationLayer

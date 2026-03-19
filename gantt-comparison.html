@@ -159,7 +159,7 @@
     }
 
     function categoryOpacity(category) {
-      return 0.85;
+      return 1;
     }
 
     function contrastText(fillColor, theme) {
@@ -321,24 +321,45 @@
         .duration(animate ? 200 : 0)
         .style("opacity", 1);
 
-      labelsGroup
-        .selectAll(".task-label")
+      const taskLabelGroups = labelsGroup
+        .selectAll(".task-label-g")
         .data(data)
         .enter()
-        .append("text")
-        .attr("class", "task-label")
-        .attr("x", (d) => xScale(d.start + d.duration) + 8)
-        .attr("y", (d) => yScale(d.task) + barOffset + barHeight / 2 + 4)
-        .attr("text-anchor", "start")
-        .attr("fill", theme.foreground)
-        .style("font-size", "11px")
-        .style("font-family", "Space Grotesk, sans-serif")
-        .style("font-weight", 400)
-        .style("opacity", animate ? 0 : 1)
-        .text((d) => {
-          const availableWidth = xScale(sharedDomain[1]) - xScale(d.start + d.duration) - 14;
-          return truncateWithEllipsis(d.task, Math.max(availableWidth, 32));
-        })
+        .append("g")
+        .attr("class", "task-label-g")
+        .style("opacity", animate ? 0 : 1);
+
+      taskLabelGroups.each(function(d) {
+        const g = d3.select(this);
+        const lx = xScale(d.start + d.duration) + 8;
+        const ly = yScale(d.task) + barOffset + barHeight / 2 + 4;
+        const availableWidth = xScale(sharedDomain[1]) - xScale(d.start + d.duration) - 14;
+        const label = truncateWithEllipsis(d.task, Math.max(availableWidth, 32));
+
+        const txt = g.append("text")
+          .attr("class", "task-label")
+          .attr("x", lx)
+          .attr("y", ly)
+          .attr("text-anchor", "start")
+          .attr("fill", theme.foreground)
+          .style("font-size", "11px")
+          .style("font-family", "Space Grotesk, sans-serif")
+          .style("font-weight", 400)
+          .text(label);
+
+        const tw = txt.node().getComputedTextLength();
+        const pad = 4;
+        g.insert("rect", "text")
+          .attr("x", lx - pad)
+          .attr("y", ly - 11)
+          .attr("width", tw + pad * 2)
+          .attr("height", 15)
+          .attr("fill", theme.background)
+          .attr("fill-opacity", 1)
+          .attr("rx", 2);
+      });
+
+      taskLabelGroups
         .transition()
         .delay((d) => animate ? (d.start + d.duration) * msPerDay : 0)
         .duration(animate ? 200 : 0)
@@ -400,6 +421,33 @@
         .attr("height", dimensions.height)
         .attr("fill", theme.background);
 
+      // Draw dashed line first into chartLayer so it sits below all bars and labels
+      const aiEndDay = cycleTotalDays(aiAssistedCycle);
+      const markerX = dimensions.margin.left + xScale(aiEndDay);
+      const lineTop = firstPanelTop - 40;
+      const lineBottom = secondPanelTop + secondPanelHeight;
+      const markerDelay = animate ? aiEndDay * msPerDay : 0;
+
+      const markerLine = chartLayer
+        .append("line")
+        .attr("x1", markerX)
+        .attr("x2", markerX)
+        .attr("y2", lineBottom)
+        .attr("stroke", "#000")
+        .attr("stroke-width", 1)
+        .attr("stroke-dasharray", "6,6");
+
+      if (animate) {
+        markerLine.attr("y1", lineBottom)
+          .transition()
+          .delay(markerDelay)
+          .duration(400)
+          .ease(d3.easeCubicOut)
+          .attr("y1", lineTop);
+      } else {
+        markerLine.attr("y1", lineTop);
+      }
+
       renderChart({
         parent: chartLayer,
         data: traditionalCycle,
@@ -421,12 +469,6 @@
         xScale,
         animate
       });
-
-      const aiEndDay = cycleTotalDays(aiAssistedCycle);
-      const markerX = dimensions.margin.left + xScale(aiEndDay);
-      const lineTop = firstPanelTop - 40;
-      const lineBottom = secondPanelTop + secondPanelHeight;
-      const markerDelay = animate ? aiEndDay * msPerDay : 0;
 
       const redOverlayX = markerX;
       const redOverlayWidth = dimensions.margin.left + xScale(sharedDomain[1]) - markerX;
@@ -470,28 +512,7 @@
           .style("opacity", 1);
       }
 
-      const lineDuration = animate ? 400 : 0;
 
-      const markerLine = annotationLayer
-        .append("line")
-        .attr("x1", markerX)
-        .attr("x2", markerX)
-        .attr("y2", lineBottom)
-        .attr("stroke", "#000")
-        .attr("stroke-width", 1)
-        .attr("stroke-dasharray", "6,6");
-
-      if (animate) {
-        markerLine
-          .attr("y1", lineBottom)
-          .transition()
-          .delay(markerDelay)
-          .duration(lineDuration)
-          .ease(d3.easeCubicOut)
-          .attr("y1", lineTop);
-      } else {
-        markerLine.attr("y1", lineTop);
-      }
 
       const markerLabel = annotationLayer
         .append("text")
@@ -507,7 +528,7 @@
         markerLabel
           .style("opacity", 0)
           .transition()
-          .delay(markerDelay + lineDuration)
+          .delay(markerDelay + 400)
           .duration(300)
           .style("opacity", 1);
       }
